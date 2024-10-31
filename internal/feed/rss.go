@@ -78,7 +78,7 @@ func (f RSSFeedItems) SortByNewest() RSSFeedItems {
 var feedParser = gofeed.NewParser()
 
 func getItemsFromRSSFeedTask(request RSSFeedRequest) ([]RSSFeedItem, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultClientTimeout)
 	defer cancel()
 
 	feed, err := feedParser.ParseURLWithContext(request.Url, ctx)
