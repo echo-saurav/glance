@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const defaultClientTimeout = 60 * time.Second
+const defaultClientTimeout = 5 * time.Second
 
 var defaultClient = &http.Client{
 	Timeout: defaultClientTimeout,
