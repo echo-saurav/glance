@@ -18,6 +18,10 @@ import (
 var widgetIDCounter atomic.Uint64
 
 func newWidget(widgetType string) (widget, error) {
+	if widgetType == "" {
+		return nil, errors.New("widget 'type' property is empty or not specified")
+	}
+
 	var w widget
 
 	switch widgetType {
@@ -75,6 +79,8 @@ func newWidget(widgetType string) (widget, error) {
 		w = &dockerContainersWidget{}
 	case "server-stats":
 		w = &serverStatsWidget{}
+	case "to-do":
+		w = &todoWidget{}
 	default:
 		return nil, fmt.Errorf("unknown widget type: %s", widgetType)
 	}
@@ -104,7 +110,7 @@ func (w *widgets) UnmarshalYAML(node *yaml.Node) error {
 
 		widget, err := newWidget(meta.Type)
 		if err != nil {
-			return err
+			return fmt.Errorf("line %d: %w", node.Line, err)
 		}
 
 		if err = node.Decode(widget); err != nil {
@@ -121,13 +127,13 @@ type widget interface {
 	// These need to be exported because they get called in templates
 	Render() template.HTML
 	GetType() string
+	GetID() uint64
 
 	initialize() error
 	requiresUpdate(*time.Time) bool
 	setProviders(*widgetProviders)
 	update(context.Context)
 	setID(uint64)
-	id() uint64
 	handleRequest(w http.ResponseWriter, r *http.Request)
 	setHideHeader(bool)
 }
@@ -146,6 +152,7 @@ type widgetBase struct {
 	Type                string           `yaml:"type"`
 	Title               string           `yaml:"title"`
 	TitleURL            string           `yaml:"title-url"`
+	HideHeader          bool             `yaml:"hide-header"`
 	CSSClass            string           `yaml:"css-class"`
 	CustomCacheDuration durationField    `yaml:"cache"`
 	ContentAvailable    bool             `yaml:"-"`
@@ -157,7 +164,6 @@ type widgetBase struct {
 	cacheType           cacheType        `yaml:"-"`
 	nextUpdate          time.Time        `yaml:"-"`
 	updateRetriedTimes  int              `yaml:"-"`
-	HideHeader          bool             `yaml:"-"`
 }
 
 type widgetProviders struct {
@@ -184,7 +190,7 @@ func (w *widgetBase) update(ctx context.Context) {
 
 }
 
-func (w *widgetBase) id() uint64 {
+func (w *widgetBase) GetID() uint64 {
 	return w.ID
 }
 

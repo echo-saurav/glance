@@ -1,6 +1,7 @@
 import { setupPopovers } from './popover.js';
 import { setupMasonries } from './masonry.js';
 import { throttledDebounce, isElementVisible, openURLInNewTab } from './utils.js';
+import { elem, find, findAll } from './templating.js';
 
 async function fetchPageContent(pageData) {
     // TODO: handle non 200 status codes/time outs
@@ -104,6 +105,7 @@ function setupSearchBoxes() {
     for (let i = 0; i < searchWidgets.length; i++) {
         const widget = searchWidgets[i];
         const defaultSearchUrl = widget.dataset.defaultSearchUrl;
+        const target = widget.dataset.target || "_blank";
         const newTab = widget.dataset.newTab === "true";
         const inputElement = widget.getElementsByClassName("search-input")[0];
         const bangElement = widget.getElementsByClassName("search-bang")[0];
@@ -143,7 +145,7 @@ function setupSearchBoxes() {
                 const url = searchUrlTemplate.replace("!QUERY!", encodeURIComponent(query));
 
                 if (newTab && !event.ctrlKey || !newTab && event.ctrlKey) {
-                    window.open(url, '_blank').focus();
+                    window.open(url, target).focus();
                 } else {
                     window.location.href = url;
                 }
@@ -192,7 +194,7 @@ function setupSearchBoxes() {
 
         document.addEventListener("keydown", (event) => {
             if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
-            if (event.key != "s") return;
+            if (event.code != "KeyS") return;
 
             inputElement.focus();
             event.preventDefault();
@@ -284,7 +286,9 @@ function setupGroups() {
 
                 for (let i = 0; i < titles.length; i++) {
                     titles[i].classList.remove("widget-group-title-current");
+                    titles[i].setAttribute("aria-selected", "false");
                     tabs[i].classList.remove("widget-group-content-current");
+                    tabs[i].setAttribute("aria-hidden", "true");
                 }
 
                 if (current < t) {
@@ -296,7 +300,9 @@ function setupGroups() {
                 current = t;
 
                 title.classList.add("widget-group-title-current");
+                title.setAttribute("aria-selected", "true");
                 tabs[t].classList.add("widget-group-content-current");
+                tabs[t].setAttribute("aria-hidden", "false");
             });
         }
     }
@@ -636,6 +642,17 @@ async function setupCalendars() {
         calendar.default(elems[i]);
 }
 
+async function setupTodos() {
+    const elems = Array.from(document.getElementsByClassName("todo"));
+    if (elems.length == 0) return;
+
+    const todo = await import ('./todo.js');
+
+    for (let i = 0; i < elems.length; i++){
+        todo.default(elems[i]);
+    }
+}
+
 function setupTruncatedElementTitles() {
     const elements = document.querySelectorAll(".text-truncate, .single-line-titles .title, .text-truncate-2-lines, .text-truncate-3-lines");
 
@@ -645,11 +662,90 @@ function setupTruncatedElementTitles() {
 
     for (let i = 0; i < elements.length; i++) {
         const element = elements[i];
-        if (element.title === "") element.title = element.textContent;
+        if (element.getAttribute("title") === null)
+            element.title = element.innerText.trim().replace(/\s+/g, " ");
     }
 }
 
+async function changeTheme(key, onChanged) {
+    const themeStyleElem = find("#theme-style");
+
+    const response = await fetch(`${pageData.baseURL}/api/set-theme/${key}`, {
+        method: "POST",
+    });
+
+    if (response.status != 200) {
+        alert("Failed to set theme: " + response.statusText);
+        return;
+    }
+    const newThemeStyle = await response.text();
+
+    const tempStyle = elem("style")
+        .html("* { transition: none !important; }")
+        .appendTo(document.head);
+
+    themeStyleElem.html(newThemeStyle);
+    document.documentElement.setAttribute("data-theme", key);
+    document.documentElement.setAttribute("data-scheme", response.headers.get("X-Scheme"));
+    typeof onChanged == "function" && onChanged();
+    setTimeout(() => { tempStyle.remove(); }, 10);
+}
+
+function initThemePicker() {
+    const themeChoicesInMobileNav = find(".mobile-navigation .theme-choices");
+    if (!themeChoicesInMobileNav) return;
+
+    const themeChoicesInHeader = find(".header-container .theme-choices");
+
+    if (themeChoicesInHeader) {
+        themeChoicesInHeader.replaceWith(
+            themeChoicesInMobileNav.cloneNode(true)
+        );
+    }
+
+    const presetElems = findAll(".theme-choices .theme-preset");
+    let themePreviewElems = document.getElementsByClassName("current-theme-preview");
+    let isLoading = false;
+
+    presetElems.forEach((presetElement) => {
+        const themeKey = presetElement.dataset.key;
+
+        if (themeKey === undefined) {
+            return;
+        }
+
+        if (themeKey == pageData.theme) {
+            presetElement.classList.add("current");
+        }
+
+        presetElement.addEventListener("click", () => {
+            if (themeKey == pageData.theme) return;
+            if (isLoading) return;
+
+            isLoading = true;
+            changeTheme(themeKey, function() {
+                isLoading = false;
+                pageData.theme = themeKey;
+                presetElems.forEach((e) => { e.classList.remove("current"); });
+
+                Array.from(themePreviewElems).forEach((preview) => {
+                    preview.querySelector(".theme-preset").replaceWith(
+                        presetElement.cloneNode(true)
+                    );
+                })
+
+                presetElems.forEach((e) => {
+                    if (e.dataset.key != themeKey) return;
+                    e.classList.add("current");
+                });
+            });
+        });
+    })
+}
+
 async function setupPage() {
+    initThemePicker();
+
     const pageElement = document.getElementById("page");
     const pageContentElement = document.getElementById("page-content");
     const pageContent = await fetchPageContent(pageData);
@@ -660,6 +756,7 @@ async function setupPage() {
         setupPopovers();
         setupClocks()
         await setupCalendars();
+        await setupTodos();
         setupCarousels();
         setupSearchBoxes();
         setupCollapsibleLists();
@@ -670,6 +767,7 @@ async function setupPage() {
         setupLazyImages();
     } finally {
         pageElement.classList.add("content-ready");
+        pageElement.setAttribute("aria-busy", "false");
 
         for (let i = 0; i < contentReadyCallbacks.length; i++) {
             contentReadyCallbacks[i]();
